@@ -248,6 +248,9 @@ function formatEvent(ev: VivetixEvent, idx: number): string {
     lines.push(`   💰 ${price}${ev.num_options && ev.num_options > 1 ? ` (${ev.num_options} opciones)` : ""}`);
   }
   if (ev.url) lines.push(`   🔗 ${ev.url}`);
+  if (ev.thumbnails && ev.thumbnails.length > 0) {
+    lines.push(`   <img src="${ev.thumbnails[0]}" alt="${(ev.title ?? '').replace(/"/g, '')}" style="max-height:200px;border-radius:8px;margin-top:6px;">`);
+  }
   return lines.join("\n");
 }
 
