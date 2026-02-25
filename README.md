@@ -8,14 +8,37 @@ Asistente de IA para Vivetix con acceso a documentación oficial y reporte autom
 
 ## Instalación
 
-### 1. Clonar el repositorio
+### Opción A: Usar imagen pre-construida (recomendado)
 
 ```bash
-git clone <url-del-repo>
-cd ChatMCP
+docker pull ghcr.io/igarrux/vivetix-chat:latest
 ```
 
-### 2. Configurar variables de entorno
+Luego ejecuta directamente:
+
+```bash
+docker run -d --name vivetix-chat \
+  -p 3000:3000 \
+  -e OPENAI_API_KEY="sk-proj-..." \
+  -e OPENAI_MODEL=gpt-4o \
+  -e ADVISOR_PHONE="+573001234567" \
+  -v vivetix-data:/app/store \
+  -t ghcr.io/igarrux/vivetix-chat:latest
+```
+
+### Opción B: Compilar desde el código fuente
+
+#### 1. Clonar el repositorio
+
+```bash
+git clone https://github.com/igarrux/vivetixDocsMCPIA.git
+cd vivetixDocsMCPIA
+```
+docker pull ghcr.io/igarrux/vivetix-chat:latest
+
+
+
+#### 2. Configurar variables de entorno
 
 Copia el archivo de ejemplo y edítalo con tus valores:
 
@@ -35,19 +58,19 @@ ADVISOR_PHONE=+573001234567    # Teléfono que recibe reportes técnicos por Wha
 PORT=3000                       # Puerto del servidor web
 ```
 
-### 3. Construir la imagen
+#### 3. Construir la imagen
 
 ```bash
 docker-compose build
 ```
 
-### 4. Iniciar el contenedor
+#### 4. Iniciar el contenedor
 
 ```bash
 docker-compose up -d
 ```
 
-### 5. Vincular WhatsApp (primera vez)
+### Vincular WhatsApp (primera vez)
 
 Al iniciar por primera vez, el bridge de WhatsApp genera un código QR que debes escanear con tu teléfono:
 
@@ -63,7 +86,7 @@ Cuando veas el QR en la terminal:
 
 Una vez vinculado, el servidor arranca automáticamente. La sesión se guarda en un volumen persistente, así que **no necesitas volver a escanear** al reiniciar el contenedor.
 
-### 6. Acceder al chat
+### Acceder al chat
 
 Abre en tu navegador:
 

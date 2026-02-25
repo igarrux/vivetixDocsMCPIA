@@ -1,3 +1,7 @@
 .env
 node_modules
 store
+# WhatsApp MCP
+whatsapp-mcp/whatsapp-bridge/whatsapp-bridge
+whatsapp-mcp/example-use.png
+.DS_Store
