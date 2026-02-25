@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DOCS_DIR = resolve(__dirname, "docs");
@@ -194,6 +195,140 @@ for (const doc of DOCUMENTS) {
     }),
   );
 }
+
+// ── Event categories ──────────────────────────────────────────────────
+const VALID_CATEGORIES = [
+  "business-and-networking",
+  "cinema-and-audiovisual",
+  "community-supportive-and-causes",
+  "education-and-science",
+  "gastronomy-and-drinks",
+  "music",
+  "parties-and-nightlife",
+  "performing-arts-and-culture",
+  "religion-and-spirituality",
+  "sports-motor-and-e-sports",
+  "tourism-and-outdoor-activities",
+  "well-being-and-health",
+  "family-and-childhood",
+  "technology-and-innovation",
+  "fairs-markets-and-shopping",
+  "ceremonies-and-celebrations",
+] as const;
+
+// ── Event search tool ─────────────────────────────────────────────────
+interface VivetixEvent {
+  id?: number;
+  title?: string;
+  slug?: string;
+  url?: string;
+  nearest_datetime?: string;
+  number_of_dates?: number;
+  base_price?: number;
+  num_options?: number;
+  address?: string;
+  has_venue?: boolean;
+  currency?: { code?: string; symbol_right?: string };
+  thumbnails?: string[];
+  [key: string]: unknown;
+}
+
+function formatEvent(ev: VivetixEvent, idx: number): string {
+  const lines: string[] = [`**${idx}. ${ev.title ?? "Sin título"}**`];
+  if (ev.nearest_datetime) {
+    const d = new Date(ev.nearest_datetime);
+    const dateStr = d.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    const timeStr = d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+    lines.push(`   📅 ${dateStr} a las ${timeStr}${ev.number_of_dates && ev.number_of_dates > 1 ? ` (+${ev.number_of_dates - 1} fechas más)` : ""}`);
+  }
+  if (ev.address) lines.push(`   📍 ${ev.address}`);
+  if (ev.base_price != null) {
+    const sym = ev.currency?.symbol_right ?? ev.currency?.code ?? "€";
+    const price = ev.base_price === 0 ? "Gratis" : `Desde ${ev.base_price}${sym}`;
+    lines.push(`   💰 ${price}${ev.num_options && ev.num_options > 1 ? ` (${ev.num_options} opciones)` : ""}`);
+  }
+  if (ev.url) lines.push(`   🔗 ${ev.url}`);
+  return lines.join("\n");
+}
+
+function parseEventsResponse(data: unknown): VivetixEvent[] {
+  if (Array.isArray(data)) return data;
+  if (typeof data === "object" && data !== null) {
+    // API returns {id1: {...}, id2: {...}, city: "..."} — filter numeric keys
+    return Object.entries(data)
+      .filter(([key]) => /^\d+$/.test(key))
+      .map(([, val]) => val as VivetixEvent);
+  }
+  return [];
+}
+
+server.registerTool(
+  "buscar_eventos",
+  {
+    title: "Buscar eventos en Vivetix",
+    description:
+      "Busca eventos disponibles en Vivetix por término de búsqueda y/o categoría. " +
+      "Usa 'search' para buscar por nombre/título del evento. " +
+      "Usa 'category' para filtrar por categoría (opcional). " +
+      "Categorías válidas: " + VALID_CATEGORIES.join(", ") + ". " +
+      "Si no se necesita filtrar por categoría, omitir el parámetro o usar '-'. " +
+      "Devuelve una lista de eventos con título, fecha, lugar, precio y enlace.",
+    inputSchema: {
+      search: z.string().default("").describe(
+        "Término de búsqueda por título del evento. Puede estar vacío para buscar solo por categoría."
+      ),
+      category: z.enum(["-", ...VALID_CATEGORIES]).default("-").describe(
+        "Categoría para filtrar eventos. Usar '-' para no filtrar por categoría. " +
+        "Categorías: " + VALID_CATEGORIES.join(", ")
+      ),
+      length: z.number().min(1).max(50).default(10).describe(
+        "Cantidad de resultados a devolver (1-50, por defecto 10)"
+      ),
+    },
+  },
+  async ({ search, category, length }) => {
+    const params = new URLSearchParams({
+      search: search || "",
+      category: category || "-",
+      length: String(length || 10),
+      reduced: "true",
+    });
+
+    const url = `https://vivetix.com/api/v3/events?${params}`;
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        return {
+          content: [{ type: "text" as const, text: `Error al buscar eventos: HTTP ${res.status}` }],
+        };
+      }
+
+      const data = await res.json();
+      const events = parseEventsResponse(data);
+
+      if (events.length === 0) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `No se encontraron eventos${search ? ` para "${search}"` : ""}${category !== "-" ? ` en la categoría "${category}"` : ""}. Prueba con otros términos de búsqueda o sin filtro de categoría.`,
+          }],
+        };
+      }
+
+      const formatted = events.map((ev, i) => formatEvent(ev, i + 1)).join("\n\n");
+      const header = `Se encontraron ${events.length} evento(s)${search ? ` para "${search}"` : ""}${category !== "-" ? ` en categoría "${category}"` : ""}:\n\n`;
+
+      return {
+        content: [{ type: "text" as const, text: header + formatted }],
+      };
+    } catch (err: any) {
+      return {
+        content: [{ type: "text" as const, text: `Error de conexión al buscar eventos: ${err.message}` }],
+      };
+    }
+  },
+);
 
 // ── Start ─────────────────────────────────────────────────────────────
 const transport = new StdioServerTransport();
