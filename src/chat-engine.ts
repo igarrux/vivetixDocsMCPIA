@@ -18,7 +18,10 @@ const BASE_PROMPT =
 function buildSystemPrompt(reportPhone: string): string {
   if (!reportPhone) return BASE_PROMPT;
 
-  const recipient = reportPhone.replace(/[^\d]/g, "");
+  // Si es un JID de grupo (contiene @g.us), usarlo tal cual; si es un número, limpiar
+  const recipient = reportPhone.includes("@")
+    ? reportPhone.trim()
+    : reportPhone.replace(/[^\d]/g, "");
 
   return (
     BASE_PROMPT +
@@ -134,11 +137,16 @@ export class ChatEngine {
       const { name } = call.function;
       const args = JSON.parse(call.function.arguments);
 
-      console.log(`  ⚙ ${name}(${JSON.stringify(args).slice(0, 120)}…)`);
+      console.log(`  ⚙ ${name}(${JSON.stringify(args).slice(0, 200)})`);
 
-      const result = await this.bridge
-        .callTool(name, args)
-        .catch((err: Error) => `Error ejecutando ${name}: ${err.message}`);
+      let result: string;
+      try {
+        result = await this.bridge.callTool(name, args);
+        console.log(`  ✓ ${name} → ${result.slice(0, 200)}`);
+      } catch (err: any) {
+        result = `Error ejecutando ${name}: ${err.message}`;
+        console.error(`  ✗ ${name} falló:`, err.message);
+      }
 
       this.messages.push({
         role: "tool",
