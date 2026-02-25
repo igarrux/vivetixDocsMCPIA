@@ -18,6 +18,7 @@ const BASE_PROMPT =
   "Tienes la herramienta buscar_eventos para buscar eventos disponibles en Vivetix. Úsala cuando el usuario quiera encontrar eventos. " +
   "Estrategia de búsqueda:\n" +
   "- Si el usuario busca algo específico (ej: 'K-pop', 'Bad Bunny', 'festival de jazz'), usa el parámetro search con ese término, sin categoría.\n" +
+  "Siempre devuelve los eventos con la misma información que proporciona la herramienta.\n" +
   "- Si el usuario busca por tipo genérico (ej: 'eventos de música', 'fiestas', 'deportes'), usa la categoría correspondiente sin search.\n" +
   "- Si no encuentra resultados, intenta variaciones: sin acentos, en inglés, con sinónimos, o ampliando la búsqueda quitando la categoría.\n" +
   "- Si la primera búsqueda no da resultados, intenta al menos una variación más antes de decir que no hay eventos.\n" +

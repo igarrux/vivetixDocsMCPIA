@@ -18,6 +18,7 @@ const PORT = parseInt(process.env.PORT || "3000", 10);
 const WHATSAPP_MCP_PATH = process.env.WHATSAPP_MCP_PATH || "";
 const REPORT_PHONE = process.env.ADVISOR_PHONE || "";
 const UV_PATH = process.env.UV_PATH || "uv";
+const N8N_API_KEY = process.env.N8N_API_KEY || ""; // optional auth for /api/n8n
 const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 
 if (!apiKey) {
@@ -159,6 +160,56 @@ async function main() {
       sessions.delete(sessionId);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    // ── n8n / automation endpoint ───────────────────────────────────
+    // POST /api/n8n  { "message": "...", "sessionId?": "...", "reset?": true }
+    // Auth: header  Authorization: Bearer <N8N_API_KEY>  (only when N8N_API_KEY is set)
+    if (req.method === "POST" && req.url === "/api/n8n") {
+      // Auth check
+      if (N8N_API_KEY) {
+        const auth = req.headers["authorization"] ?? "";
+        const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+        if (token !== N8N_API_KEY) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Unauthorized" }));
+          return;
+        }
+      }
+
+      try {
+        const body = await readBody(req);
+        const payload = JSON.parse(body);
+        const sessionId = payload.sessionId || "n8n-default";
+
+        // Optional reset
+        if (payload.reset === true) {
+          sessions.delete(sessionId);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, sessionId }));
+          return;
+        }
+
+        const message = payload.message;
+        if (!message || typeof message !== "string") {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Missing 'message' field (string)" }));
+          return;
+        }
+
+        console.log(`\n🔗 [n8n:${sessionId.slice(0, 8)}] ${message}`);
+        const engine = await getEngine(sessionId);
+        const reply = await engine.send(message);
+        console.log(`🤖 [n8n:${sessionId.slice(0, 8)}] ${reply.slice(0, 120)}…`);
+
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ reply, sessionId }));
+      } catch (err: any) {
+        console.error("Error en /api/n8n:", err);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err?.message ?? "Error interno" }));
+      }
       return;
     }
 
