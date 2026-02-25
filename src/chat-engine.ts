@@ -128,6 +128,10 @@ export class ChatEngine {
       model: this.model,
       messages: this.messages,
       tools: this.tools,
+      store: true,
+      metadata: {
+        source: "vivetix-chat",
+      },
     });
     return response.choices[0];
   }
