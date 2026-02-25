@@ -1,4 +1,4 @@
-process.loadEnvFile();
+try { process.loadEnvFile(); } catch {}
 
 import OpenAI from "openai";
 import { createInterface } from "node:readline/promises";

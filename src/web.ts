@@ -1,4 +1,4 @@
-process.loadEnvFile();
+try { process.loadEnvFile(); } catch {}
 
 import OpenAI from "openai";
 import { exit } from "node:process";
@@ -15,6 +15,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const apiKey = process.env.OPENAI_API_KEY;
 const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const PORT = parseInt(process.env.PORT || "3000", 10);
+const WHATSAPP_MCP_PATH = process.env.WHATSAPP_MCP_PATH || "";
+const REPORT_PHONE = process.env.ADVISOR_PHONE || "";
+const UV_PATH = process.env.UV_PATH || "uv";
+const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 
 if (!apiKey) {
   console.error("OPENAI_API_KEY is missing in .env");
@@ -24,14 +28,79 @@ if (!apiKey) {
 // ── Bootstrap ─────────────────────────────────────────────────────────
 async function main() {
   console.log("Iniciando MCP servers…");
-  const [docsBridge] = await Promise.all([
-    McpBridge.create("tsx", ["src/mcp-docs-server.ts"]),
-  ]);
 
-  const bridge = McpBridge.composite(docsBridge);
-  const engine = new ChatEngine(new OpenAI({ apiKey }), model, bridge);
+  // Always start docs bridge
+  const docsBridge = await McpBridge.create("tsx", ["src/mcp-docs-server.ts"]);
 
-  const toolNames = await engine.init();
+  // Optionally start WhatsApp bridge (for sending reports)
+  let whatsappBridge: McpBridge | null = null;
+  if (WHATSAPP_MCP_PATH) {
+    try {
+      console.log("  📱 Conectando WhatsApp MCP (reportes)…");
+      whatsappBridge = await McpBridge.create(UV_PATH, [
+        "--directory",
+        resolve(WHATSAPP_MCP_PATH, "whatsapp-mcp-server"),
+        "run",
+        "main.py",
+      ]);
+      const waTools = await whatsappBridge.toolNames();
+      console.log(`  ✓ WhatsApp MCP conectado — herramientas: ${waTools.join(", ")}`);
+    } catch (err: any) {
+      console.warn(`  ⚠ WhatsApp MCP no disponible: ${err?.message ?? "error desconocido"}`);
+      whatsappBridge = null;
+    }
+  } else {
+    console.log("  ℹ WhatsApp MCP no configurado (WHATSAPP_MCP_PATH vacío)");
+  }
+
+  const bridge = whatsappBridge
+    ? McpBridge.composite(docsBridge, whatsappBridge)
+    : McpBridge.composite(docsBridge);
+
+  // ── Session management ──────────────────────────────────────────
+  const sessions = new Map<string, { engine: ChatEngine; lastActive: number }>();
+
+  async function getEngine(sessionId: string): Promise<ChatEngine> {
+    let session = sessions.get(sessionId);
+    if (!session) {
+      const engine = new ChatEngine(
+        new OpenAI({ apiKey }),
+        model,
+        bridge,
+        REPORT_PHONE,
+      );
+      await engine.init();
+      session = { engine, lastActive: Date.now() };
+      sessions.set(sessionId, session);
+      console.log(`🆕 Nueva sesión: ${sessionId.slice(0, 8)}…`);
+    }
+    session.lastActive = Date.now();
+    return session.engine;
+  }
+
+  function getSessionId(req: IncomingMessage): string {
+    return (req.headers["x-session-id"] as string) || "default";
+  }
+
+  // Cleanup expired sessions every 5 minutes
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, session] of sessions) {
+      if (now - session.lastActive > SESSION_TIMEOUT) {
+        sessions.delete(id);
+        console.log(`🗑 Sesión expirada: ${id.slice(0, 8)}…`);
+      }
+    }
+  }, 5 * 60 * 1000);
+
+  // Pre-verify tools work
+  const testEngine = new ChatEngine(
+    new OpenAI({ apiKey }),
+    model,
+    bridge,
+    REPORT_PHONE,
+  );
+  const toolNames = await testEngine.init();
   console.log(`✓ MCP conectados — herramientas: ${toolNames.join(", ")}\n`);
 
   // ── HTTP Server ───────────────────────────────────────────────────
@@ -39,10 +108,9 @@ async function main() {
   const html = readFileSync(htmlPath, "utf-8");
 
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    // CORS headers
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Session-Id");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);
@@ -62,6 +130,8 @@ async function main() {
       try {
         const body = await readBody(req);
         const { message } = JSON.parse(body);
+        const sessionId = getSessionId(req);
+        const engine = await getEngine(sessionId);
 
         if (!message || typeof message !== "string") {
           res.writeHead(400, { "Content-Type": "application/json" });
@@ -69,9 +139,9 @@ async function main() {
           return;
         }
 
-        console.log(`\n💬 Usuario: ${message}`);
+        console.log(`\n💬 [${sessionId.slice(0, 8)}] Usuario: ${message}`);
         const reply = await engine.send(message);
-        console.log(`🤖 IA: ${reply.slice(0, 120)}…`);
+        console.log(`🤖 [${sessionId.slice(0, 8)}] IA: ${reply.slice(0, 120)}…`);
 
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
         res.end(JSON.stringify({ reply }));
@@ -85,7 +155,8 @@ async function main() {
 
     // Reset conversation
     if (req.method === "POST" && req.url === "/api/reset") {
-      engine.reset();
+      const sessionId = getSessionId(req);
+      sessions.delete(sessionId);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
       return;
@@ -105,6 +176,7 @@ async function main() {
     console.log("\nCerrando…");
     server.close();
     await bridge.close();
+    if (whatsappBridge) await whatsappBridge.close();
     exit(0);
   });
 }

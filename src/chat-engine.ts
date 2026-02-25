@@ -5,34 +5,79 @@ type Message = OpenAI.Chat.ChatCompletionMessageParam;
 type Tool = OpenAI.Chat.ChatCompletionTool;
 type Choice = OpenAI.Chat.ChatCompletion.Choice;
 
-const SYSTEM_PROMPT =
+const BASE_PROMPT =
   "Eres un asistente de Vivetix. Tienes acceso a documentación oficial de Vivetix " +
   "(aviso legal, política de privacidad, cookies, términos y condiciones, guías para organizadores, " +
   "atención al cliente, etc.) a través de herramientas específicas. " +
   "Cuando el usuario pregunte sobre algún tema relacionado con Vivetix, usa la herramienta " +
   "adecuada para consultar el documento correspondiente y responde con la información exacta. " +
-  "Si la pregunta no se relaciona con Vivetix, responde que solo puedes ayudar con temas relacionados con Vivetix." + 
-  "Siempre busca la información en los documentos antes de responder, no hagas suposiciones ni inventes respuestas." +
+  "Si la pregunta no se relaciona con Vivetix, responde que solo puedes ayudar con temas relacionados con Vivetix. " +
+  "Siempre busca la información en los documentos antes de responder, no hagas suposiciones ni inventes respuestas. " +
   "Vivetix es una plataforma de venta de entradas para eventos, que ofrece servicios tanto a organizadores como a compradores de entradas.";
+
+function buildSystemPrompt(reportPhone: string): string {
+  if (!reportPhone) return BASE_PROMPT;
+
+  const recipient = reportPhone.replace(/[^\d]/g, "");
+
+  return (
+    BASE_PROMPT +
+    "\n\nREPORTE DE INCIDENCIAS TÉCNICAS:\n" +
+    "Cuando un usuario reporte un problema técnico grave (errores HTTP como 400/500, funcionalidades que no cargan, " +
+    "compras que se procesan sin pago, datos que no se guardan, problemas de rendimiento severos, etc.), " +
+    "debes seguir este protocolo:\n" +
+    "1. Pide al usuario la información necesaria: qué estaba haciendo, qué error vio, en qué dispositivo/navegador, " +
+    "si puede reproducirlo. NO pidas capturas de pantalla (no hay forma de subirlas en este chat). " +
+    "Pide un número de teléfono o correo electrónico de contacto para que el equipo técnico pueda comunicarse si necesita más detalles.\n" +
+    "2. NO generes el reporte hasta tener suficiente información. Pregunta lo que falte.\n" +
+    "3. Una vez tengas suficiente información, usa la herramienta send_message para enviar el reporte al equipo técnico. " +
+    `Usa recipient="${recipient}" y como message envía un reporte estructurado con este formato:\n\n` +
+    "🚨 *REPORTE DE INCIDENCIA — Chat Vivetix*\n\n" +
+    "📋 REPORTE DE INCIDENCIA TÉCNICA\n" +
+    "Fecha: (fecha actual)\n" +
+    "Severidad: (Crítica/Alta/Media/Baja)\n" +
+    "Categoría: (Error de pago/Error de carga/Error de datos/Error de autenticación/Otro)\n" +
+    "Resumen: (descripción breve del problema)\n" +
+    "Descripción detallada: (explicación completa)\n" +
+    "Pasos para reproducir:\n1. ...\n2. ...\n" +
+    "Dispositivo/Navegador: (si se proporcionó)\n" +
+    "Contacto del usuario: (teléfono o correo proporcionado, si lo dio)\n" +
+    "Impacto: (a quién y cómo afecta)\n\n" +
+    "4. Después de enviar el reporte con send_message, responde al usuario confirmando brevemente que el problema fue reportado. " +
+    "Si proporcionó datos de contacto, dile que es posible que el equipo técnico le contacte para más detalles. " +
+    "NO muestres el contenido del reporte al usuario.\n" +
+    "5. NUNCA ofrezcas transferir con un asesor humano. Tú eres el único punto de contacto."
+  );
+}
+
 /**
  * Orchestrates the conversation between the user, OpenAI, and local MCP tools.
+ * Detects technical issues and sends reports to WhatsApp.
  */
 export class ChatEngine {
   private openai: OpenAI;
   private model: string;
   private bridge: McpBridge;
   private tools: Tool[] = [];
-  private messages: Message[] = [{ role: "system", content: SYSTEM_PROMPT }];
+  private systemPrompt: string;
+  private messages: Message[];
 
-  constructor(openai: OpenAI, model: string, bridge: McpBridge) {
+  constructor(
+    openai: OpenAI,
+    model: string,
+    bridge: McpBridge,
+    reportPhone: string = "",
+  ) {
     this.openai = openai;
     this.model = model;
     this.bridge = bridge;
+    this.systemPrompt = buildSystemPrompt(reportPhone);
+    this.messages = [{ role: "system", content: this.systemPrompt }];
   }
 
   /** Reset conversation history, keeping only the system prompt. */
   reset(): void {
-    this.messages = [{ role: "system", content: SYSTEM_PROMPT }];
+    this.messages = [{ role: "system", content: this.systemPrompt }];
   }
 
   /** Load tools from MCP and prepare the engine. */
@@ -43,7 +88,10 @@ export class ChatEngine {
       .map((t) => t.function.name);
   }
 
-  /** Send a user message and return the assistant's final text reply. */
+  /**
+   * Send a user message through OpenAI and return the reply.
+   * The AI may autonomously call send_message to deliver reports to WhatsApp.
+   */
   async send(userMessage: string): Promise<string> {
     this.messages.push({ role: "user", content: userMessage });
 
@@ -57,6 +105,7 @@ export class ChatEngine {
 
     const reply = choice.message.content?.trim() || "(sin respuesta)";
     this.messages.push({ role: "assistant", content: reply });
+
     return reply;
   }
 

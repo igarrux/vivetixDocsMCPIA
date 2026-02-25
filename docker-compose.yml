@@ -1,0 +1,23 @@
+services:
+  vivetix-chat:
+    build: .
+    container_name: vivetix-chat
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - ADVISOR_PHONE=${ADVISOR_PHONE}
+      - WHATSAPP_MCP_PATH=/app/whatsapp-mcp
+      - UV_PATH=uv
+      - PORT=3000
+    volumes:
+      # Persist WhatsApp session & message DB across restarts
+      - whatsapp-data:/app/store
+    # TTY required so QR code is visible in `docker compose logs -f`
+    tty: true
+    stdin_open: true
+
+volumes:
+  whatsapp-data:

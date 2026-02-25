@@ -4,9 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Vivetix Chat</title>
-  <!-- Marked.js for Markdown rendering -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <!-- Highlight.js for code syntax highlighting -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/github-dark.min.css" />
   <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"></script>
   <style>
@@ -51,6 +49,12 @@
       flex-shrink: 0;
     }
 
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
     .logo {
       display: flex;
       align-items: center;
@@ -87,7 +91,7 @@
 
     .status-dot.offline { background: var(--danger); }
 
-    #resetBtn {
+    .header-btn {
       background: transparent;
       border: 1px solid var(--border);
       color: var(--text-muted);
@@ -98,11 +102,30 @@
       transition: all 0.2s;
     }
 
-    #resetBtn:hover {
+    .header-btn:hover {
       background: var(--surface-hover);
       color: var(--text);
       border-color: var(--text-muted);
     }
+
+    /* ── System messages ──────────────────────────────────── */
+    .system-msg {
+      text-align: center;
+      padding: 8px 16px;
+      font-size: 13px;
+      color: var(--text-muted);
+      animation: fadeIn 0.25s ease;
+    }
+
+    .system-msg span {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 6px 14px;
+      border-radius: 16px;
+      display: inline-block;
+    }
+
+
 
     /* ── Messages area ────────────────────────────────────── */
     #messages {
@@ -238,9 +261,7 @@
     .msg.bot .msg-bubble h2 { font-size: 16px; }
     .msg.bot .msg-bubble h3 { font-size: 15px; }
 
-    .msg.bot .msg-bubble p {
-      margin: 6px 0;
-    }
+    .msg.bot .msg-bubble p { margin: 6px 0; }
 
     .msg.bot .msg-bubble ul,
     .msg.bot .msg-bubble ol {
@@ -248,9 +269,7 @@
       padding-left: 20px;
     }
 
-    .msg.bot .msg-bubble li {
-      margin: 3px 0;
-    }
+    .msg.bot .msg-bubble li { margin: 3px 0; }
 
     .msg.bot .msg-bubble code {
       background: #2a2a34;
@@ -280,9 +299,7 @@
       text-decoration: none;
     }
 
-    .msg.bot .msg-bubble a:hover {
-      text-decoration: underline;
-    }
+    .msg.bot .msg-bubble a:hover { text-decoration: underline; }
 
     .msg.bot .msg-bubble blockquote {
       border-left: 3px solid var(--accent);
@@ -305,9 +322,7 @@
       font-size: 13px;
     }
 
-    .msg.bot .msg-bubble th {
-      background: #222228;
-    }
+    .msg.bot .msg-bubble th { background: #222228; }
 
     /* ── Typing indicator ─────────────────────────────────── */
     .typing {
@@ -362,13 +377,8 @@
       transition: border-color 0.2s;
     }
 
-    #userInput:focus {
-      border-color: var(--accent);
-    }
-
-    #userInput::placeholder {
-      color: var(--text-muted);
-    }
+    #userInput:focus { border-color: var(--accent); }
+    #userInput::placeholder { color: var(--text-muted); }
 
     #sendBtn {
       background: var(--accent);
@@ -385,19 +395,9 @@
       flex-shrink: 0;
     }
 
-    #sendBtn:hover {
-      background: var(--accent-light);
-    }
-
-    #sendBtn:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
-    #sendBtn svg {
-      width: 20px;
-      height: 20px;
-    }
+    #sendBtn:hover { background: var(--accent-light); }
+    #sendBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #sendBtn svg { width: 20px; height: 20px; }
 
     .input-hint {
       text-align: center;
@@ -406,7 +406,6 @@
       margin-top: 8px;
     }
 
-    /* ── Responsive ───────────────────────────────────────── */
     @media (max-width: 640px) {
       .msg { max-width: 92%; }
       .suggestions { flex-direction: column; align-items: center; }
@@ -418,15 +417,17 @@
 </head>
 <body>
   <header>
-    <div class="logo">
-      <div class="logo-icon">🎟</div>
-      <span>Vivetix Chat</span>
+    <div class="header-left">
+      <div class="logo">
+        <div class="logo-icon">🎟</div>
+        <span>Vivetix Chat</span>
+      </div>
+      <div class="status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Conectado</span>
+      </div>
     </div>
-    <div class="status">
-      <span class="status-dot" id="statusDot"></span>
-      <span id="statusText">Conectado</span>
-    </div>
-    <button id="resetBtn" title="Nueva conversación">🔄 Nueva conversación</button>
+    <button id="resetBtn" class="header-btn" title="Nueva conversación">🔄 Nueva</button>
   </header>
 
   <div id="messages">
@@ -470,6 +471,14 @@
 
     let sending = false;
 
+    // ── Session management ──────────────────────────────────
+    let sessionId = sessionStorage.getItem("vivetix_session");
+    if (!sessionId) {
+      sessionId = crypto.randomUUID();
+      sessionStorage.setItem("vivetix_session", sessionId);
+    }
+    const sessionHeaders = { "X-Session-Id": sessionId };
+
     // ── Configure marked ────────────────────────────────────
     marked.setOptions({
       highlight: (code, lang) => {
@@ -507,9 +516,12 @@
 
     // ── Reset ───────────────────────────────────────────────
     resetBtn.addEventListener("click", async () => {
-      await fetch("/api/reset", { method: "POST" });
+      await fetch("/api/reset", { method: "POST", headers: sessionHeaders });
       messagesEl.innerHTML = "";
       addWelcome();
+      sessionId = crypto.randomUUID();
+      sessionStorage.setItem("vivetix_session", sessionId);
+      sessionHeaders["X-Session-Id"] = sessionId;
     });
 
     // ── Send message ────────────────────────────────────────
@@ -517,7 +529,6 @@
       const text = inputEl.value.trim();
       if (!text || sending) return;
 
-      // Remove welcome screen
       const welcome = messagesEl.querySelector(".welcome");
       if (welcome) welcome.remove();
 
@@ -532,12 +543,11 @@
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...sessionHeaders },
           body: JSON.stringify({ message: text }),
         });
 
         const data = await res.json();
-
         typingEl.remove();
 
         if (data.error) {
@@ -571,7 +581,6 @@
 
       if (isMarkdown) {
         bubble.innerHTML = marked.parse(content);
-        // Highlight code blocks that marked didn't catch
         bubble.querySelectorAll("pre code").forEach((block) => {
           hljs.highlightElement(block);
         });
@@ -582,6 +591,15 @@
       msg.appendChild(avatar);
       msg.appendChild(bubble);
       messagesEl.appendChild(msg);
+      scrollToBottom();
+    }
+
+    // ── System message ──────────────────────────────────────
+    function addSystemMessage(text, type) {
+      const el = document.createElement("div");
+      el.className = `system-msg ${type}`;
+      el.innerHTML = `<span>${text}</span>`;
+      messagesEl.appendChild(el);
       scrollToBottom();
     }
 

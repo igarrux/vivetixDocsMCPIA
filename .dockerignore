@@ -1,0 +1,13 @@
+node_modules
+.git
+.DS_Store
+.env
+.playwright-mcp
+store
+whatsapp-mcp/.git
+whatsapp-mcp/whatsapp-bridge/store
+whatsapp-mcp/whatsapp-bridge/whatsapp-bridge
+whatsapp-mcp/whatsapp-mcp-server/.venv
+whatsapp-mcp/whatsapp-mcp-server/__pycache__
+whatsapp-mcp/example-use.png
+*.log
